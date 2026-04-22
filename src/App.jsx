@@ -62,6 +62,7 @@ export default function App() {
   const [error,       setError]       = useState('')
   const [dragOver,    setDragOver]    = useState(false)
   const [videoUrl,    setVideoUrl]    = useState(null)
+  const [actionMetric, setActionMetric] = useState('cvr')
   const inputRef = useRef()
 
   const loadFile = useCallback((file) => {
@@ -184,8 +185,8 @@ export default function App() {
       )}
 
       {activeTab === 'Check'  && <CheckTab  rows={rows} appealTags={appealTags} setAppealTags={setAppealTags} />}
-      {activeTab === 'Action' && <ActionTab rows={rows} avgCvr={avgCvr} />}
-      {activeTab === 'Plan'   && <PlanTab   rows={rows} avgCvr={avgCvr} appealTags={appealTags} />}
+      {activeTab === 'Action' && <ActionTab rows={rows} avgCvr={avgCvr} actionMetric={actionMetric} setActionMetric={setActionMetric} />}
+      {activeTab === 'Plan'   && <PlanTab   rows={rows} avgCvr={avgCvr} appealTags={appealTags} actionMetric={actionMetric} />}
       {activeTab === 'Do'     && <DoTab     rows={rows} avgCvr={avgCvr} doneTasks={doneTasks} setDoneTasks={setDoneTasks} />}
 
       {videoUrl && <VideoModal url={videoUrl} onClose={() => setVideoUrl(null)} />}
