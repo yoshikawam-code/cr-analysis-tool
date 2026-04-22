@@ -33,7 +33,9 @@ function parseLine(line) {
 }
 
 function parseCSV(text) {
-  const lines = text.trim().split(/\r?\n/)
+  // BOM 除去
+  const clean = text.replace(/^﻿/, '')
+  const lines = clean.trim().split(/\r?\n/)
   if (lines.length < 2) throw new Error('データが不足しています（ヘッダー行 + 1行以上必要）')
 
   const headers = parseLine(lines[0])
@@ -52,10 +54,13 @@ function parseCSV(text) {
     material:    headers.indexOf('素材'),
   }
 
+  // インデックスが -1 または範囲外の場合は空文字を返す
+  const getCol = (cols, i) =>
+    (i >= 0 && i < cols.length && cols[i] != null) ? cols[i] : ''
+
   // "-" や空文字は 0 扱い、桁区切りカンマを除去してからパース
   const toNum = v => {
-    if (v == null) return 0
-    const s = v.trim()
+    const s = getCol([v], 0).trim()
     if (s === '' || s === '-' || s === 'N/A') return 0
     return parseFloat(s.replace(/,/g, ''))
   }
@@ -64,13 +69,13 @@ function parseCSV(text) {
   const rawRows = lines.slice(1).filter(l => {
     if (!l.trim()) return false
     const firstCol = parseLine(l)[0]
-    return DATE_RE.test(firstCol)
+    return typeof firstCol === 'string' && DATE_RE.test(firstCol.trim())
   }).map((line, i) => {
     const cols = parseLine(line)
-    const cost        = toNum(cols[idx.cost])
-    const impressions = toNum(cols[idx.impressions])
-    const conversions = toNum(cols[idx.conversions])
-    const clicks      = toNum(cols[idx.clicks])
+    const cost        = toNum(getCol(cols, idx.cost))
+    const impressions = toNum(getCol(cols, idx.impressions))
+    const conversions = toNum(getCol(cols, idx.conversions))
+    const clicks      = toNum(getCol(cols, idx.clicks))
 
     if ([cost, impressions, conversions, clicks].some(isNaN)) {
       const names = ['コスト', 'インプレッション', 'コンバージョン', 'クリック（誘導先）']
@@ -81,14 +86,14 @@ function parseCSV(text) {
 
     return {
       id:        i,
-      date:      idx.date >= 0 ? cols[idx.date] : '',
-      assetName: cols[idx.assetName],
+      date:      getCol(cols, idx.date),
+      assetName: getCol(cols, idx.assetName),
       cost,
       cvr:      clicks > 0 ? (conversions / clicks) * 100 : 0,
       ctr:      impressions > 0 ? (clicks / impressions) * 100 : 0,
       cpa:      conversions > 0 ? cost / conversions : null,
-      currency: idx.currency >= 0 ? cols[idx.currency] : '',
-      material: idx.material >= 0 ? cols[idx.material] : '',
+      currency: getCol(cols, idx.currency),
+      material: getCol(cols, idx.material),
     }
   })
 
