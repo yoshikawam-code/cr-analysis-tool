@@ -1,5 +1,5 @@
 .app {
-  max-width: 1100px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 32px 20px;
 }
@@ -64,6 +64,7 @@
   font-weight: 600;
   cursor: pointer;
   border: none;
+  text-decoration: none;
   transition: background 0.2s;
 }
 
@@ -187,6 +188,13 @@ td {
   white-space: nowrap;
 }
 
+td.asset-name {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 tbody tr:last-child td {
   border-bottom: none;
 }
@@ -221,9 +229,80 @@ tbody tr.low-cvr .score-badge {
   color: #c62828;
 }
 
-.empty-state {
+/* Video button */
+.video-btn {
+  padding: 4px 12px;
+  background: #1a1a2e;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.video-btn:hover {
+  background: #3949ab;
+}
+
+tbody tr.low-cvr .video-btn {
+  background: #c62828;
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-box {
+  position: relative;
+  background: #000;
+  border-radius: 12px;
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow: hidden;
+}
+
+.modal-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  background: rgba(255,255,255,0.15);
+  border: none;
+  color: #fff;
+  font-size: 1rem;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  cursor: pointer;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-close:hover {
+  background: rgba(255,255,255,0.3);
+}
+
+.modal-video {
+  display: block;
+  max-width: 80vw;
+  max-height: 80vh;
+}
+
+.modal-link-body {
+  padding: 40px 48px;
   text-align: center;
-  padding: 48px;
-  color: #aaa;
-  font-size: 0.9rem;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  align-items: center;
 }

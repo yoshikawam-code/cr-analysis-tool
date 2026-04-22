@@ -2,43 +2,89 @@ import { useState, useRef, useCallback } from 'react'
 import './App.css'
 
 const COLUMNS = [
-  { key: 'crName', label: 'CR名', sortable: false },
-  { key: 'cvr', label: 'CVR (%)', sortable: true },
-  { key: 'ctr', label: 'CTR (%)', sortable: true },
-  { key: 'cpa', label: 'CPA (円)', sortable: true },
-  { key: 'score', label: '優先スコア', sortable: true },
+  { key: 'date',      label: '日',                     sortable: false },
+  { key: 'assetName', label: 'クリエイティブアセット名', sortable: false },
+  { key: 'cvr',       label: 'CVR (%)',                sortable: true  },
+  { key: 'ctr',       label: 'CTR (%)',                sortable: true  },
+  { key: 'cpa',       label: 'CPA',                    sortable: true  },
+  { key: 'score',     label: '優先スコア',               sortable: true  },
+  { key: 'material',  label: '素材',                    sortable: false },
 ]
 
-const CVR_LOW_THRESHOLD = 1.0
+// CSV の1行をクォート対応でパース
+function parseLine(line) {
+  const result = []
+  let cur = ''
+  let inQ = false
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (ch === '"') {
+      if (inQ && line[i + 1] === '"') { cur += '"'; i++ }
+      else inQ = !inQ
+    } else if (ch === ',' && !inQ) {
+      result.push(cur.trim())
+      cur = ''
+    } else {
+      cur += ch
+    }
+  }
+  result.push(cur.trim())
+  return result
+}
 
 function parseCSV(text) {
   const lines = text.trim().split(/\r?\n/)
   if (lines.length < 2) throw new Error('データが不足しています（ヘッダー行 + 1行以上必要）')
 
-  const headers = lines[0].split(',').map(h => h.trim())
-  const required = ['CR名', 'CVR', 'CTR', 'CPA', '優先スコア']
+  const headers = parseLine(lines[0])
+  const required = ['クリエイティブアセット名', 'コスト', 'インプレッション', 'コンバージョン', 'クリック（誘導先）']
   const missing = required.filter(r => !headers.includes(r))
   if (missing.length > 0) throw new Error(`必須列が見つかりません: ${missing.join(', ')}`)
 
   const idx = {
-    crName: headers.indexOf('CR名'),
-    cvr: headers.indexOf('CVR'),
-    ctr: headers.indexOf('CTR'),
-    cpa: headers.indexOf('CPA'),
-    score: headers.indexOf('優先スコア'),
+    date:        headers.indexOf('日'),
+    assetName:   headers.indexOf('クリエイティブアセット名'),
+    cost:        headers.indexOf('コスト'),
+    impressions: headers.indexOf('インプレッション'),
+    conversions: headers.indexOf('コンバージョン'),
+    clicks:      headers.indexOf('クリック（誘導先）'),
+    currency:    headers.indexOf('通貨'),
+    material:    headers.indexOf('素材'),
   }
 
-  return lines.slice(1).filter(l => l.trim()).map((line, i) => {
-    const cols = line.split(',').map(c => c.trim())
-    const cvr = parseFloat(cols[idx.cvr])
-    const ctr = parseFloat(cols[idx.ctr])
-    const cpa = parseFloat(cols[idx.cpa])
-    const score = parseFloat(cols[idx.score])
-    if (isNaN(cvr) || isNaN(ctr) || isNaN(cpa) || isNaN(score)) {
+  const rawRows = lines.slice(1).filter(l => l.trim()).map((line, i) => {
+    const cols = parseLine(line)
+    const cost        = parseFloat(cols[idx.cost])
+    const impressions = parseFloat(cols[idx.impressions])
+    const conversions = parseFloat(cols[idx.conversions])
+    const clicks      = parseFloat(cols[idx.clicks])
+
+    if ([cost, impressions, conversions, clicks].some(isNaN)) {
       throw new Error(`${i + 2}行目: 数値の解析に失敗しました`)
     }
-    return { id: i, crName: cols[idx.crName], cvr, ctr, cpa, score }
+
+    return {
+      id:        i,
+      date:      idx.date >= 0 ? cols[idx.date] : '',
+      assetName: cols[idx.assetName],
+      cost,
+      cvr:      clicks > 0 ? (conversions / clicks) * 100 : 0,
+      ctr:      impressions > 0 ? (clicks / impressions) * 100 : 0,
+      cpa:      conversions > 0 ? cost / conversions : null,
+      currency: idx.currency >= 0 ? cols[idx.currency] : '',
+      material: idx.material >= 0 ? cols[idx.material] : '',
+    }
   })
+
+  if (rawRows.length === 0) throw new Error('有効なデータ行がありません')
+
+  const avgCvr = rawRows.reduce((s, r) => s + r.cvr, 0) / rawRows.length
+
+  return rawRows.map(r => ({
+    ...r,
+    score: r.cost * (avgCvr - r.cvr),
+    avgCvr,
+  }))
 }
 
 function SortIcon({ dir }) {
@@ -46,12 +92,34 @@ function SortIcon({ dir }) {
   return <span className="sort-indicator">{dir === 'asc' ? '↑' : '↓'}</span>
 }
 
+function VideoModal({ url, onClose }) {
+  const isVideo = /\.(mp4|webm|mov)(\?|$)/i.test(url)
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()}>
+        <button className="modal-close" onClick={onClose}>✕</button>
+        {isVideo ? (
+          <video src={url} controls autoPlay className="modal-video" />
+        ) : (
+          <div className="modal-link-body">
+            <p>動画URLを新しいタブで開きます</p>
+            <a href={url} target="_blank" rel="noreferrer" className="upload-btn">
+              開く ↗
+            </a>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
-  const [rows, setRows] = useState([])
+  const [rows, setRows]       = useState([])
   const [sortKey, setSortKey] = useState('score')
   const [sortDir, setSortDir] = useState('desc')
-  const [error, setError] = useState('')
+  const [error, setError]     = useState('')
   const [dragOver, setDragOver] = useState(false)
+  const [videoUrl, setVideoUrl] = useState(null)
   const inputRef = useRef()
 
   const loadFile = useCallback((file) => {
@@ -63,8 +131,7 @@ export default function App() {
     const reader = new FileReader()
     reader.onload = (e) => {
       try {
-        const parsed = parseCSV(e.target.result)
-        setRows(parsed)
+        setRows(parseCSV(e.target.result))
         setError('')
       } catch (err) {
         setError(err.message)
@@ -74,8 +141,6 @@ export default function App() {
     reader.readAsText(file, 'UTF-8')
   }, [])
 
-  const handleFileChange = (e) => loadFile(e.target.files[0])
-
   const handleDrop = (e) => {
     e.preventDefault()
     setDragOver(false)
@@ -83,18 +148,15 @@ export default function App() {
   }
 
   const handleSort = (key) => {
-    if (sortKey === key) {
-      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortKey(key)
-      setSortDir('desc')
-    }
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir('desc') }
   }
 
-  const sorted = [...rows].sort((a, b) => {
-    const v = sortDir === 'asc' ? a[sortKey] - b[sortKey] : b[sortKey] - a[sortKey]
-    return v
-  })
+  const avgCvr = rows.length > 0 ? rows[0].avgCvr : 0
+
+  const sorted = [...rows].sort((a, b) =>
+    sortDir === 'asc' ? a[sortKey] - b[sortKey] : b[sortKey] - a[sortKey]
+  )
 
   return (
     <div className="app">
@@ -112,15 +174,15 @@ export default function App() {
       >
         <div className="upload-icon">📊</div>
         <h2>CSVファイルをドロップ または クリックして選択</h2>
-        <p>必須列: CR名, CVR, CTR, CPA, 優先スコア</p>
+        <p>必須列: クリエイティブアセット名, コスト, インプレッション, コンバージョン, クリック（誘導先）</p>
         <button className="upload-btn" type="button">ファイルを選択</button>
         <input
           ref={inputRef}
           type="file"
           accept=".csv"
           style={{ display: 'none' }}
-          onChange={handleFileChange}
-          onClick={(e) => e.stopPropagation()}
+          onChange={e => loadFile(e.target.files[0])}
+          onClick={e => e.stopPropagation()}
         />
       </div>
 
@@ -133,7 +195,7 @@ export default function App() {
             <div className="toolbar-right">
               <span className="cvr-legend">
                 <span className="legend-dot" />
-                CVR {CVR_LOW_THRESHOLD}% 未満は赤表示
+                平均CVR {avgCvr.toFixed(2)}% 未満は赤表示
               </span>
               <button className="reset-btn" onClick={() => { setRows([]); setError('') }}>
                 リセット
@@ -157,15 +219,21 @@ export default function App() {
                 </tr>
               </thead>
               <tbody>
-                {sorted.length === 0 ? (
-                  <tr><td colSpan={5} className="empty-state">データがありません</td></tr>
-                ) : sorted.map(row => (
-                  <tr key={row.id} className={row.cvr < CVR_LOW_THRESHOLD ? 'low-cvr' : ''}>
-                    <td>{row.crName}</td>
+                {sorted.map(row => (
+                  <tr key={row.id} className={row.cvr < avgCvr ? 'low-cvr' : ''}>
+                    <td>{row.date}</td>
+                    <td className="asset-name" title={row.assetName}>{row.assetName}</td>
                     <td>{row.cvr.toFixed(2)}%</td>
                     <td>{row.ctr.toFixed(2)}%</td>
-                    <td>{row.cpa.toLocaleString()}円</td>
+                    <td>{row.cpa != null ? `${Math.round(row.cpa).toLocaleString()}${row.currency || ''}` : '—'}</td>
                     <td><span className="score-badge">{row.score.toFixed(1)}</span></td>
+                    <td>
+                      {row.material ? (
+                        <button className="video-btn" onClick={() => setVideoUrl(row.material)}>
+                          ▶ 再生
+                        </button>
+                      ) : '—'}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -173,6 +241,8 @@ export default function App() {
           </div>
         </section>
       )}
+
+      {videoUrl && <VideoModal url={videoUrl} onClose={() => setVideoUrl(null)} />}
     </div>
   )
 }
