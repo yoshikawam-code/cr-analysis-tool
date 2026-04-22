@@ -52,6 +52,13 @@ function parseCSV(text) {
     material:    headers.indexOf('素材'),
   }
 
+  // "-" や空文字は 0 扱い、桁区切りカンマを除去してからパース
+  const toNum = v => {
+    const s = v.trim()
+    if (s === '' || s === '-' || s === 'N/A') return 0
+    return parseFloat(s.replace(/,/g, ''))
+  }
+
   const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
   const rawRows = lines.slice(1).filter(l => {
     if (!l.trim()) return false
@@ -59,13 +66,16 @@ function parseCSV(text) {
     return DATE_RE.test(firstCol)
   }).map((line, i) => {
     const cols = parseLine(line)
-    const cost        = parseFloat(cols[idx.cost])
-    const impressions = parseFloat(cols[idx.impressions])
-    const conversions = parseFloat(cols[idx.conversions])
-    const clicks      = parseFloat(cols[idx.clicks])
+    const cost        = toNum(cols[idx.cost])
+    const impressions = toNum(cols[idx.impressions])
+    const conversions = toNum(cols[idx.conversions])
+    const clicks      = toNum(cols[idx.clicks])
 
     if ([cost, impressions, conversions, clicks].some(isNaN)) {
-      throw new Error(`${i + 2}行目: 数値の解析に失敗しました`)
+      const names = ['コスト', 'インプレッション', 'コンバージョン', 'クリック（誘導先）']
+      const bad = [cost, impressions, conversions, clicks]
+        .map((v, j) => isNaN(v) ? names[j] : null).filter(Boolean)
+      throw new Error(`${i + 2}行目: 数値の解析に失敗しました（列: ${bad.join(', ')}）`)
     }
 
     return {
