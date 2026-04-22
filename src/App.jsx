@@ -54,6 +54,7 @@ function parseCSV(text) {
 
   // "-" や空文字は 0 扱い、桁区切りカンマを除去してからパース
   const toNum = v => {
+    if (v == null) return 0
     const s = v.trim()
     if (s === '' || s === '-' || s === 'N/A') return 0
     return parseFloat(s.replace(/,/g, ''))
