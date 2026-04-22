@@ -52,7 +52,12 @@ function parseCSV(text) {
     material:    headers.indexOf('素材'),
   }
 
-  const rawRows = lines.slice(1).filter(l => l.trim()).map((line, i) => {
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+  const rawRows = lines.slice(1).filter(l => {
+    if (!l.trim()) return false
+    const firstCol = parseLine(l)[0]
+    return DATE_RE.test(firstCol)
+  }).map((line, i) => {
     const cols = parseLine(line)
     const cost        = parseFloat(cols[idx.cost])
     const impressions = parseFloat(cols[idx.impressions])
