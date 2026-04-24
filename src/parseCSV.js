@@ -31,12 +31,13 @@ export function parseCSV(text) {
   const idx = {
     date:        headers.indexOf('日'),
     assetName:   headers.indexOf('クリエイティブアセット名'),
+    material:    headers.indexOf('素材'),
+    placement:   headers.indexOf('プレースメント'),
     cost:        headers.indexOf('コスト'),
     impressions: headers.indexOf('インプレッション'),
     conversions: headers.indexOf('コンバージョン'),
     clicks:      headers.indexOf('クリック（誘導先）'),
     currency:    headers.indexOf('通貨'),
-    material:    headers.indexOf('素材'),
   }
 
   const getCol = (cols, i) =>
@@ -54,7 +55,7 @@ export function parseCSV(text) {
     const firstCol = parseLine(l)[0]
     return typeof firstCol === 'string' && DATE_RE.test(firstCol.trim())
   }).map((line, i) => {
-    const cols = parseLine(line)
+    const cols        = parseLine(line)
     const cost        = toNum(getCol(cols, idx.cost))
     const impressions = toNum(getCol(cols, idx.impressions))
     const cv          = toNum(getCol(cols, idx.conversions))
@@ -67,31 +68,25 @@ export function parseCSV(text) {
       throw new Error(`${i + 2}行目: 数値の解析に失敗しました（列: ${bad.join(', ')}）`)
     }
 
+    const placement = getCol(cols, idx.placement) || '—'
     return {
       id:          i,
       date:        getCol(cols, idx.date),
       assetName:   getCol(cols, idx.assetName),
+      material:    getCol(cols, idx.material),
+      placement,
       cost,
       impressions,
       cv,
       clicks,
-      cvr:         (cv > 0 && clicks > 0) ? (cv / clicks) * 100 : 0,
-      ctr:         impressions > 0 ? (clicks / impressions) * 100 : 0,
-      cpa:         cv > 0 ? cost / cv : null,
-      cpm:         impressions > 0 ? (cost / impressions) * 1000 : null,
-      cpc:         clicks > 0 ? cost / clicks : null,
-      currency:    getCol(cols, idx.currency),
-      material:    getCol(cols, idx.material),
+      cvr:  cv > 0 && clicks > 0  ? (cv / clicks) * 100 : 0,
+      ctr:  impressions > 0        ? (clicks / impressions) * 100 : 0,
+      cpa:  cv > 0                 ? cost / cv : null,
+      cpm:  impressions > 0        ? (cost / impressions) * 1000 : null,
+      cpc:  clicks > 0             ? cost / clicks : null,
     }
   })
 
   if (rawRows.length === 0) throw new Error('有効なデータ行がありません')
-
-  const avgCvr = rawRows.reduce((s, r) => s + r.cvr, 0) / rawRows.length
-
-  return rawRows.map(r => ({
-    ...r,
-    score: r.cost * (avgCvr - r.cvr),
-    avgCvr,
-  }))
+  return rawRows
 }

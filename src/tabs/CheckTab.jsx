@@ -1,20 +1,21 @@
 import { useState, useMemo } from 'react'
 import { detectAppealAxis, detectFormat, APPEAL_OPTIONS } from '../appealAxis'
 import { filterByPeriod, detectFatigue } from '../dateUtils'
+import { aggregateByName } from '../aggregateUtils'
 
 const PERIODS = ['全期間', '今月', '今週', '先週']
 const METRICS = [
-  { key: 'cvr', label: 'CVR (%)', fmt: v => v.toFixed(2) + '%' },
-  { key: 'ctr', label: 'CTR (%)', fmt: v => v.toFixed(2) + '%' },
-  { key: 'cpa', label: 'CPA',     fmt: v => v == null ? '—' : v.toLocaleString('ja-JP', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) },
+  { key: 'cvr', label: 'CVR (%)', fmt: v => v.toFixed(2) + '%', higher: true },
+  { key: 'ctr', label: 'CTR (%)', fmt: v => v.toFixed(2) + '%', higher: true },
+  { key: 'cpa', label: 'CPA',     fmt: v => v == null ? '—' : v.toLocaleString('ja-JP', { minimumFractionDigits: 1, maximumFractionDigits: 1 }), higher: false },
 ]
 
-function avg(arr, key) {
+function avgM(arr, key) {
   const vals = arr.map(r => r[key]).filter(v => v != null && !isNaN(v) && v > 0)
   return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : 0
 }
 
-function BarChart({ title, groups, metricFmt }) {
+function BarChart({ title, groups, metricFmt, higherBetter }) {
   const maxVal = Math.max(...groups.map(g => g.val), 0.0001)
   return (
     <div className="chart-card">
@@ -37,37 +38,69 @@ function BarChart({ title, groups, metricFmt }) {
   )
 }
 
+function buildAiPrompt(r) {
+  return `【CR動画分析依頼】
+CR名：${r.assetName}
+動画URL：${r.material || '（URLなし）'}
+指標：CVR ${r.cv === 0 ? '—' : r.cvr.toFixed(2) + '%'} / CTR ${r.ctr.toFixed(2)}% / CPA ${r.cv === 0 || r.cpa == null ? '—' : Math.round(r.cpa).toLocaleString() + '円'} / CV ${Math.round(r.cv)}件
+
+以下を分析してください：
+1. 冒頭3秒の内容
+2. テロップ・訴求ワード
+3. 訴求軸の分類（価格／UGC／比較／before-after／その他）
+4. 強み・弱みの評価
+5. 改善提案`
+}
+
+function CopyBtn({ text, label = 'AI精査' }) {
+  const [copied, setCopied] = useState(false)
+  const handleClick = () => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+  return (
+    <button className="ai-copy-btn" onClick={handleClick}>
+      {copied ? '✓ コピー済み' : `🔍 ${label}`}
+    </button>
+  )
+}
+
 export default function CheckTab({ rows, appealTags, setAppealTags }) {
   const [period, setPeriod] = useState('全期間')
   const [metric, setMetric] = useState('cvr')
 
-  const filtered    = useMemo(() => filterByPeriod(rows, period), [rows, period])
-  const fatigueMap  = useMemo(() => detectFatigue(rows), [rows])
-  const metricDef   = METRICS.find(m => m.key === metric)
+  const filtered   = useMemo(() => filterByPeriod(rows, period), [rows, period])
+  const fatigueMap = useMemo(() => detectFatigue(rows), [rows])
+  const metricDef  = METRICS.find(m => m.key === metric)
+
+  // Aggregate raw rows by CR name for the table
+  const crRows = useMemo(() => aggregateByName(filtered), [filtered])
 
   const axisGroups = useMemo(() => {
     const map = {}
-    filtered.forEach(r => {
-      const tag = appealTags[r.id] !== undefined ? appealTags[r.id] : detectAppealAxis(r.assetName)
+    crRows.forEach(r => {
+      const tag = appealTags[r.assetName] !== undefined ? appealTags[r.assetName] : detectAppealAxis(r.assetName)
       if (!map[tag]) map[tag] = []
       map[tag].push(r)
     })
     return Object.entries(map)
-      .map(([label, arr]) => ({ label, val: avg(arr, metric), count: arr.length }))
-      .sort((a, b) => metric === 'cpa' ? a.val - b.val : b.val - a.val)
-  }, [filtered, metric, appealTags])
+      .map(([label, arr]) => ({ label, val: avgM(arr, metric), count: arr.length }))
+      .sort((a, b) => metricDef.higher ? b.val - a.val : a.val - b.val)
+  }, [crRows, metric, appealTags, metricDef])
 
   const fmtGroups = useMemo(() => {
     const map = {}
-    filtered.forEach(r => {
+    crRows.forEach(r => {
       const fmt = detectFormat(r.material, r.assetName)
       if (!map[fmt]) map[fmt] = []
       map[fmt].push(r)
     })
     return Object.entries(map)
-      .map(([label, arr]) => ({ label, val: avg(arr, metric), count: arr.length }))
-      .sort((a, b) => metric === 'cpa' ? a.val - b.val : b.val - a.val)
-  }, [filtered, metric])
+      .map(([label, arr]) => ({ label, val: avgM(arr, metric), count: arr.length }))
+      .sort((a, b) => metricDef.higher ? b.val - a.val : a.val - b.val)
+  }, [crRows, metric, metricDef])
 
   const fatigued = useMemo(() =>
     Object.entries(fatigueMap).map(([name, metrics]) => ({ name, metrics })),
@@ -96,8 +129,8 @@ export default function CheckTab({ rows, appealTags, setAppealTags }) {
 
       {/* ── Charts ── */}
       <div className="charts-row">
-        <BarChart title={`訴求軸別 ${metricDef.label}`} groups={axisGroups} metricFmt={metricDef.fmt} />
-        <BarChart title={`フォーマット別 ${metricDef.label}`} groups={fmtGroups} metricFmt={metricDef.fmt} />
+        <BarChart title={`訴求軸別 ${metricDef.label}`} groups={axisGroups} metricFmt={metricDef.fmt} higherBetter={metricDef.higher} />
+        <BarChart title={`フォーマット別 ${metricDef.label}`} groups={fmtGroups} metricFmt={metricDef.fmt} higherBetter={metricDef.higher} />
       </div>
 
       {/* ── Fatigue ── */}
@@ -115,7 +148,7 @@ export default function CheckTab({ rows, appealTags, setAppealTags }) {
         </div>
       )}
 
-      {/* ── CR Table ── */}
+      {/* ── CR Table with AI精査ボタン ── */}
       <div className="table-wrapper" style={{ marginTop: 20 }}>
         <table>
           <thead>
@@ -127,11 +160,13 @@ export default function CheckTab({ rows, appealTags, setAppealTags }) {
               <th>CTR</th>
               <th>CPA</th>
               <th>Cost</th>
+              <th>CV</th>
+              <th>AI精査</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map(r => {
-              const axis  = appealTags[r.id] !== undefined ? appealTags[r.id] : detectAppealAxis(r.assetName)
+            {crRows.map(r => {
+              const axis  = appealTags[r.assetName] !== undefined ? appealTags[r.assetName] : detectAppealAxis(r.assetName)
               const fmt   = detectFormat(r.material, r.assetName)
               const tired = fatigueMap[r.assetName]
               return (
@@ -144,7 +179,7 @@ export default function CheckTab({ rows, appealTags, setAppealTags }) {
                     <select
                       className="axis-select"
                       value={axis}
-                      onChange={e => setAppealTags(prev => ({ ...prev, [r.id]: e.target.value }))}
+                      onChange={e => setAppealTags(prev => ({ ...prev, [r.assetName]: e.target.value }))}
                     >
                       {APPEAL_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
                     </select>
@@ -154,6 +189,8 @@ export default function CheckTab({ rows, appealTags, setAppealTags }) {
                   <td>{r.ctr.toFixed(2) + '%'}</td>
                   <td>{r.cv === 0 || r.cpa == null ? '—' : r.cpa.toLocaleString('ja-JP', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</td>
                   <td>{Math.round(r.cost).toLocaleString()}</td>
+                  <td>{Math.round(r.cv).toLocaleString()}</td>
+                  <td><CopyBtn text={buildAiPrompt(r)} /></td>
                 </tr>
               )
             })}
